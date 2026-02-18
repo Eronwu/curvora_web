@@ -4,6 +4,7 @@ import librosa.display
 import numpy as np
 import matplotlib.pyplot as plt
 import soundfile as sf
+import plotly.graph_objects as go
 import io
 
 st.set_page_config(page_title="Audio Waveform Analyzer", layout="wide")
@@ -81,21 +82,52 @@ if uploaded_file is not None:
     with col1:
         st.header("Visual Analysis")
 
-        # Plot Waveform
+        # Plot Waveform (Interactive via Plotly)
         st.subheader("Waveform")
-        fig_wave, ax_wave = plt.subplots(figsize=(10, 4))
-        librosa.display.waveshow(y_processed, sr=current_sr, ax=ax_wave)
-        ax_wave.set_title("Amplitude vs Time")
-        st.pyplot(fig_wave)
+        # Downsample for performance if needed, but here we plot full or strided
+        # Plotly can handle ~100k points, but audio has millions. Let's decimate for display.
+        step = max(1, len(y_processed) // 5000)
+        x_plot = np.linspace(0, len(y_processed)/current_sr, num=len(y_processed))[::step]
+        y_plot = y_processed[::step]
+        
+        fig_wave = go.Figure(data=go.Scatter(x=x_plot, y=y_plot, mode='lines', line=dict(color='steelblue', width=1)))
+        fig_wave.update_layout(
+            title='Waveform (Amplitude vs Time)',
+            xaxis_title='Time (s)',
+            yaxis_title='Amplitude',
+            margin=dict(l=0, r=0, t=30, b=0),
+            height=300
+        )
+        st.plotly_chart(fig_wave, use_container_width=True)
 
-        # Optional: Spectrogram
+        # Spectrogram (Interactive via Plotly)
         st.subheader("Spectrogram")
-        fig_spec, ax_spec = plt.subplots(figsize=(10, 4))
-        D = librosa.amplitude_to_db(np.abs(librosa.stft(y_processed)), ref=np.max)
-        img = librosa.display.specshow(D, sr=current_sr, x_axis='time', y_axis='log', ax=ax_spec)
-        fig_spec.colorbar(img, ax=ax_spec, format="%+2.0f dB")
-        ax_spec.set_title("Log-Frequency Spectrogram")
-        st.pyplot(fig_spec)
+        # Compute STFT
+        D = np.abs(librosa.stft(y_processed, n_fft=2048, hop_length=512))
+        D_db = librosa.amplitude_to_db(D, ref=np.max)
+        
+        # Spectrogram can be heavy. Let's plot it as a Heatmap.
+        # X axis: Time, Y axis: Frequency
+        # We need to construct axis coordinates
+        times = librosa.frames_to_time(np.arange(D_db.shape[1]), sr=current_sr, hop_length=512)
+        freqs = librosa.fft_frequencies(sr=current_sr, n_fft=2048)
+        
+        fig_spec = go.Figure(data=go.Heatmap(
+            z=D_db, 
+            x=times, 
+            y=freqs, 
+            colorscale='Viridis',
+            zmin=-80, zmax=0
+        ))
+        fig_spec.update_layout(
+            title='Spectrogram (dB)',
+            xaxis_title='Time (s)',
+            yaxis_title='Frequency (Hz)',
+            yaxis_type='log',
+            margin=dict(l=0, r=0, t=30, b=0),
+            height=300
+        )
+        st.plotly_chart(fig_spec, use_container_width=True)
 
         # Play Audio
         st.subheader("Preview")
