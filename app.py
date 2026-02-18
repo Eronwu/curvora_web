@@ -170,34 +170,54 @@ if uploaded_file is not None:
             xaxis_title='Time (s)',
             yaxis_title='Amplitude',
             margin=dict(l=0, r=0, t=40, b=0),
-            height=350,
+            height=450,
             hovermode='x unified'
         )
         st.plotly_chart(fig_wave, use_container_width=True)
 
         # === Spectrogram (Interactive Plotly) ===
         st.subheader("Spectrogram")
-        D = np.abs(librosa.stft(y_processed, n_fft=2048, hop_length=512))
+
+        # Use adaptive n_fft based on sample rate for better resolution
+        n_fft = 4096 if current_sr >= 96000 else 2048
+        hop_length = n_fft // 4
+
+        D = np.abs(librosa.stft(y_processed, n_fft=n_fft, hop_length=hop_length))
         D_db = librosa.amplitude_to_db(D, ref=np.max)
 
-        times = librosa.frames_to_time(np.arange(D_db.shape[1]), sr=current_sr, hop_length=512)
-        freqs = librosa.fft_frequencies(sr=current_sr, n_fft=2048)
+        # Downsample the spectrogram matrix if too large for Plotly
+        max_time_bins = 2000
+        max_freq_bins = 1024
+        if D_db.shape[1] > max_time_bins:
+            t_step = D_db.shape[1] // max_time_bins
+            D_db = D_db[:, ::t_step]
+        if D_db.shape[0] > max_freq_bins:
+            f_step = D_db.shape[0] // max_freq_bins
+            D_db = D_db[::f_step, :]
+
+        times = np.linspace(0, len(y_processed) / current_sr, D_db.shape[1])
+        freqs_full = librosa.fft_frequencies(sr=current_sr, n_fft=n_fft)
+        if len(freqs_full) > D_db.shape[0]:
+            f_step2 = len(freqs_full) // D_db.shape[0]
+            freqs_display = freqs_full[::f_step2][:D_db.shape[0]]
+        else:
+            freqs_display = freqs_full[:D_db.shape[0]]
 
         fig_spec = go.Figure(data=go.Heatmap(
             z=D_db,
             x=times,
-            y=freqs,
+            y=freqs_display,
             colorscale='Viridis',
             zmin=-80, zmax=0,
             colorbar=dict(title='dB')
         ))
         fig_spec.update_layout(
-            title='Spectrogram (dB)',
+            title=f'Spectrogram (dB) — n_fft={n_fft}, max freq={current_sr//2:,} Hz',
             xaxis_title='Time (s)',
             yaxis_title='Frequency (Hz)',
             yaxis_type='log',
             margin=dict(l=0, r=0, t=40, b=0),
-            height=350
+            height=500
         )
         st.plotly_chart(fig_spec, use_container_width=True)
 
